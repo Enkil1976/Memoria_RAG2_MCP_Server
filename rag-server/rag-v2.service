@@ -1,0 +1,17 @@
+[Unit]
+Description=RAG v2 MCP Server — Memoria Semántica Vectorial
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/rag_v2
+EnvironmentFile=/home/azureuser/rag_v2/.env
+ExecStart=/home/azureuser/rag_v2/env/bin/python3 rag_v2_api.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+{
+  "name": "rag-v2-mcp",
+  "version": "1.0.0",
+  "description": "BioDome RAG v2 MCP Server — Memoria Semántica Vectorial",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "mcp",
+    "rag",
+    "vector-database",
+    "gemini",
+    "embeddings"
+  ],
+  "author": "BioDome Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  db:
+    image: ankane/pgvector
+    container_name: rag-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres_password_here
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+    volumes:
+      - rag-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rag-api:
+    build: 
+      context: ./rag-server
+      dockerfile: Dockerfile
+    container_name: rag-api
+    ports:
+      - "5001:5001"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres_password_here
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-embedding-2-preview
+      - API_HOST=0.0.0.0
+      - API_PORT=5001
+      - EMBEDDING_DIM=1536
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  rag-db-data:
