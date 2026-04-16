@@ -66,9 +66,12 @@ class RAGSystemV2:
             print(f"[RAG v2] ⚠️  Redis no disponible (caché deshabilitada): {e}")
         return None
 
-    def _get_cache_key(self, project_id: str, query: str):
+    def _get_cache_key(self, project_id: str, query: str, agent_id: str = None):
         query_hash = hashlib.md5(query.strip().lower().encode()).hexdigest()
-        return f"rag_cache:{project_id}:{query_hash}"
+        key_base = f"rag_cache:{project_id}"
+        if agent_id:
+            key_base += f":{agent_id}"
+        return f"{key_base}:{query_hash}"
 
     # ── Inicialización del esquema ────────────────────────────────────────────
     def _init_db(self):
@@ -108,6 +111,12 @@ class RAGSystemV2:
                 # Migración retrocompatible: añadir columnas si faltaran
                 cur.execute("ALTER TABLE memories_v2      ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT 'default'")
                 cur.execute("ALTER TABLE memory_chunks_v2 ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT 'default'")
+                cur.execute("ALTER TABLE memories_v2      ADD COLUMN IF NOT EXISTS agent_id   TEXT NOT NULL DEFAULT 'system'")
+                cur.execute("ALTER TABLE memory_chunks_v2 ADD COLUMN IF NOT EXISTS agent_id   TEXT NOT NULL DEFAULT 'system'")
+                
+                # Índices adicionales
+                cur.execute("CREATE INDEX IF NOT EXISTS memories_v2_agent_idx ON memories_v2 (agent_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS chunks_v2_agent_idx   ON memory_chunks_v2 (agent_id)")
 
                 self.conn.commit()
                 print(f"[RAG v2] DB inicializada — dim={EMBEDDING_DIM}, modelo={MODEL_ID}")
@@ -133,23 +142,24 @@ class RAGSystemV2:
 
     # ── Escritura de memoria ──────────────────────────────────────────────────
     def add_memory(self, title: str, content: str, tags=None,
-                   memory_type: str = "note", metadata=None, project_id: str = "default") -> int:
+                   memory_type: str = "note", metadata=None, 
+                   project_id: str = "default", agent_id: str = "system") -> int:
         with self.conn.cursor() as cur:
             try:
                 cur.execute("""
-                    INSERT INTO memories_v2 (project_id, title, content, tags, memory_type, metadata)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO memories_v2 (project_id, agent_id, title, content, tags, memory_type, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (project_id, title, content, tags or [], memory_type, json.dumps(metadata or {})))
+                """, (project_id, agent_id, title, content, tags or [], memory_type, json.dumps(metadata or {})))
 
                 memory_id = cur.fetchone()[0]
 
                 for chunk in self._chunk_text(content):
                     embedding = self.generate_embedding(chunk, task_type="RETRIEVAL_DOCUMENT", title=title)
                     cur.execute("""
-                        INSERT INTO memory_chunks_v2 (memory_id, project_id, chunk_text, embedding)
-                        VALUES (%s, %s, %s, %s)
-                    """, (memory_id, project_id, chunk, embedding))
+                        INSERT INTO memory_chunks_v2 (memory_id, project_id, agent_id, chunk_text, embedding)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (memory_id, project_id, agent_id, chunk, embedding))
 
                 self.conn.commit()
                 return memory_id
@@ -159,10 +169,12 @@ class RAGSystemV2:
 
     # ── Búsqueda semántica ────────────────────────────────────────────────────
     def search_semantic(self, query: str, limit: int = 5,
-                        task_type: str = "RETRIEVAL_QUERY", project_id: str = "default"):
+                        task_type: str = "RETRIEVAL_QUERY", 
+                        project_id: str = "default", 
+                        agent_id: str = None):
         
         # 1. Intentar recuperar desde caché
-        cache_key = self._get_cache_key(project_id, query)
+        cache_key = self._get_cache_key(project_id, query, agent_id)
         if self.redis:
             try:
                 cached_data = self.redis.get(cache_key)
@@ -177,22 +189,27 @@ class RAGSystemV2:
 
         with self.conn.cursor() as cur:
             try:
+                # Buscamos combinando resultados: 
+                # Priorizamos los del agente actual (agent_id) y luego los globales ('system')
+                # usando un sistema de puntuación para el ORDER BY
                 cur.execute("""
-                    SELECT m.id, m.title, mc.chunk_text,
-                           1 - (mc.embedding <=> %s::vector) AS similarity
+                    SELECT m.id, m.title, mc.chunk_text, m.agent_id,
+                           (1 - (mc.embedding <=> %s::vector)) AS similarity,
+                           CASE WHEN m.agent_id = %s THEN 1.0 ELSE 0.0 END AS agent_boost
                     FROM memory_chunks_v2 mc
                     JOIN memories_v2 m ON mc.memory_id = m.id
                     WHERE mc.project_id = %s
-                    ORDER BY mc.embedding <=> %s::vector
+                    ORDER BY agent_boost DESC, similarity DESC
                     LIMIT %s
-                """, (query_embedding, project_id, query_embedding, limit))
+                """, (query_embedding, agent_id, project_id, limit))
 
                 results = [
                     {
                         'id':         row[0],
                         'title':      row[1],
                         'content':    row[2],
-                        'similarity': round(row[3], 4)
+                        'agent_id':   row[3],
+                        'similarity': round(row[4], 4)
                     }
                     for row in cur.fetchall()
                 ]

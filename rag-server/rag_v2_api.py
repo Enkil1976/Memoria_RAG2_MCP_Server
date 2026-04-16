@@ -15,7 +15,7 @@ load_dotenv()
 
 API_HOST    = os.environ.get('API_HOST', '0.0.0.0')
 API_PORT    = int(os.environ.get('API_PORT', '5001'))
-API_VERSION = "2.1.0"
+API_VERSION = "2.3.0"
 
 # ── Modelos Pydantic ──────────────────────────────────────────────────────────
 class Memory(BaseModel):
@@ -25,12 +25,14 @@ class Memory(BaseModel):
     memory_type: Optional[str]             = "note"
     metadata:    Optional[Dict[str, Any]]  = {}
     project_id:  Optional[str]             = "default"
+    agent_id:    Optional[str]             = "system"
 
 class SearchQuery(BaseModel):
     query:      str
     limit:      Optional[int] = 5
     task_type:  Optional[str] = "RETRIEVAL_QUERY"
     project_id: Optional[str] = "default"
+    agent_id:   Optional[str] = None
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -48,7 +50,7 @@ async def health():
         "status":   "healthy",
         "model":    os.environ.get('GEMINI_MODEL', 'gemini-embedding-2-preview'),
         "version":  API_VERSION,
-        "features": ["multi-project", "semantic-search", f"{os.environ.get('EMBEDDING_DIM', '1536')}-dim"]
+        "features": ["multi-project", "semantic-search", "agent-aware", f"{os.environ.get('EMBEDDING_DIM', '1536')}-dim"]
     }
 
 @app.post("/api/memories")
@@ -60,9 +62,10 @@ async def add_memory(memory: Memory):
             tags        = memory.tags,
             memory_type = memory.memory_type,
             metadata    = memory.metadata,
-            project_id  = memory.project_id
+            project_id  = memory.project_id,
+            agent_id    = memory.agent_id
         )
-        return {"id": memory_id, "status": "success", "project_id": memory.project_id}
+        return {"id": memory_id, "status": "success", "project_id": memory.project_id, "agent_id": memory.agent_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -73,9 +76,10 @@ async def search_memories(search: SearchQuery):
             query      = search.query,
             limit      = search.limit,
             task_type  = search.task_type,
-            project_id = search.project_id
+            project_id = search.project_id,
+            agent_id   = search.agent_id
         )
-        return {"results": results, "query": search.query, "project_id": search.project_id}
+        return {"results": results, "query": search.query, "project_id": search.project_id, "agent_id": search.agent_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

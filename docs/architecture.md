@@ -11,8 +11,9 @@ graph TD
     C -->|1. Verificar Caché| F[(Redis Cache)]
     F -->|Hit: Retornar| B
     F -->|Miss| C
-    C -->|2. Embeddings| D[Google Gemini API]
-    C -->|3. Query Vectorial| E[PostgreSQL + pgvector]
+    C -->|2. Identificar Agente| G[Jerarquía: Agente > Proyecto]
+    G -->|3. Embeddings| D[Google Gemini API]
+    C -->|4. Query Vectorial| E[PostgreSQL + pgvector]
     E -->|Resultados| C
     C -->|4. Guardar Caché| F
     C -->|Respuesta| B
@@ -26,8 +27,9 @@ El cerebro del sistema. Se encarga de:
 - **Chunking**: Fragmentación inteligente de textos largos.
 - **Embeddings**: Generación de vectores usando el modelo `gemini-embedding-2-preview`.
 - **Almacenamiento Vectorial**: Persistencia en PostgreSQL utilizando `pgvector`.
-- **Caché Semántica**: Integración con Redis para almacenamiento temporal de consultas frecuentes, ahorrando hasta un 100% de tokens de embedding en hits.
-- **Multitenancy**: Aislamiento de datos mediante `project_id`.
+- **Caché Semántica**: Integración con Redis para optimización de tokens.
+- **Agent-Aware Isolation**: Los datos están etiquetados por `agent_id`, permitiendo búsquedas confinadas al conocimiento de un agente específico o búsquedas globales priorizadas.
+- **Multitenancy**: Aislamiento total de datos mediante `project_id`.
 
 ### 2. MCP Server (Node.js)
 El puente de comunicación. Implementa el **Model Context Protocol**:

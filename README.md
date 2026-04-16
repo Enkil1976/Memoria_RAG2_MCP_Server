@@ -8,6 +8,7 @@ Este sistema permite que tus agentes tengan "memoria a largo plazo" real, utiliz
 
 - **Búsqueda Semántica**: Utiliza Google Gemini Embedding 2 (1536 dimensiones) para encontrar conceptos relacionados.
 - **Caché Semántica con Redis**: Ahorro drástico de tokens al cachear resultados de preguntas frecuentes.
+- **Agent-Aware Retrieval**: Prioriza o aísla conocimiento basado en el `agent_id`, ideal para equipos de agentes especializados.
 - **Persistencia Robusta**: Almacenamiento en PostgreSQL con la extensión `pgvector`.
 - **Aislamiento por Proyecto**: Soporta múltiples proyectos independientes en el mismo servidor.
 - **Optimización de Costos**: Diseñado específicamente para reducir el consumo de la cuota de la API de Gemini.

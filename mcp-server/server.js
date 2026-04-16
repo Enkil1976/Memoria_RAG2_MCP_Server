@@ -35,6 +35,7 @@ if (fs.existsSync(envPath)) {
 // ── Configuración ─────────────────────────────────────────────────────────────
 const PROJECT_ID  = process.argv[2] || process.env.PROJECT_ID  || 'default';
 const RAG_URL     = process.argv[3] || process.env.RAG_URL      || 'http://localhost:5001';
+const AGENT_ID    = process.env.AGENT_ID || 'system';
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '30000');
 
 // ── HTTP Helper ───────────────────────────────────────────────────────────────
@@ -92,7 +93,8 @@ const TOOLS = [
         content:     { type: 'string', description: 'Contenido completo (soporta Markdown)' },
         tags:        { type: 'array',  items: { type: 'string' }, description: 'Tags para categorización' },
         memory_type: { type: 'string', enum: ['architecture','decision','bug','pattern','feature','api','note'], description: 'Tipo semántico de la memoria' },
-        project_id:  { type: 'string', description: `Proyecto destino (default: "${PROJECT_ID}")` }
+        project_id:  { type: 'string', description: `Proyecto destino (default: "${PROJECT_ID}")` },
+        agent_id:    { type: 'string', description: `ID del agente (default: "${AGENT_ID}")` }
       },
       required: ['title', 'content']
     }
@@ -105,7 +107,8 @@ const TOOLS = [
       properties: {
         query:      { type: 'string', description: 'Consulta en lenguaje natural' },
         limit:      { type: 'number', description: 'Número máximo de resultados (default: 5)' },
-        project_id: { type: 'string', description: `Proyecto a consultar (default: "${PROJECT_ID}")` }
+        project_id: { type: 'string', description: `Proyecto a consultar (default: "${PROJECT_ID}")` },
+        agent_id:   { type: 'string', description: 'Opcional: Filtrar o priorizar memorias de este agente' }
       },
       required: ['query']
     }
@@ -137,13 +140,15 @@ const TOOLS = [
 // ── Handlers ──────────────────────────────────────────────────────────────────
 async function rag_memory_write(args) {
   const project_id = args.project_id || PROJECT_ID;
+  const agent_id   = args.agent_id   || AGENT_ID;
   const result = await ragRequest('POST', '/api/memories', {
     title:       args.title,
     content:     args.content,
     tags:        args.tags        || [],
     memory_type: args.memory_type || 'note',
     metadata:    {},
-    project_id
+    project_id,
+    agent_id
   });
   return {
     success:   true,
@@ -155,11 +160,13 @@ async function rag_memory_write(args) {
 
 async function rag_memory_search(args) {
   const project_id = args.project_id || PROJECT_ID;
+  const agent_id   = args.agent_id   || null;
   const result = await ragRequest('POST', '/api/search', {
     query:      args.query,
     limit:      args.limit || 5,
     task_type:  'RETRIEVAL_QUERY',
-    project_id
+    project_id,
+    agent_id
   });
   return {
     results: (result.results || []).map(r => ({
@@ -231,7 +238,7 @@ async function handleRequest(req) {
         sendResponse(id, {
           protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'rag-v2-mcp', version: '1.0.0' }
+          serverInfo: { name: 'rag-v2-mcp', version: '1.1.0' }
         });
         break;
       case 'tools/list':
