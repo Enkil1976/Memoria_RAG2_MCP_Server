@@ -8,10 +8,14 @@ Este proyecto implementa un sistema de memoria semántica persistente diseñado 
 graph TD
     A[Agente de IA / Antigravity] -->|JSON-RPC| B[MCP Server Node.js]
     B -->|HTTP/REST| C[FastAPI RAG Backend]
-    C -->|Embeddings| D[Google Gemini API]
-    C -->|Query/Insert| E[PostgreSQL + pgvector]
-    E -->|Similarity Search| C
-    C -->|Resultados| B
+    C -->|1. Verificar Caché| F[(Redis Cache)]
+    F -->|Hit: Retornar| B
+    F -->|Miss| C
+    C -->|2. Embeddings| D[Google Gemini API]
+    C -->|3. Query Vectorial| E[PostgreSQL + pgvector]
+    E -->|Resultados| C
+    C -->|4. Guardar Caché| F
+    C -->|Respuesta| B
     B -->|Respuesta| A
 ```
 
@@ -20,8 +24,9 @@ graph TD
 ### 1. RAG Core (FastAPI + Python)
 El cerebro del sistema. Se encarga de:
 - **Chunking**: Fragmentación inteligente de textos largos.
-- **Embeddings**: Generación de vectores usando el modelo `gemini-embedding-2-preview` (1536 dimensiones).
-- **Almacenamiento Vectorial**: Persistencia en PostgreSQL utilizando la extensión `pgvector` para realizar búsquedas de similitud por coseno.
+- **Embeddings**: Generación de vectores usando el modelo `gemini-embedding-2-preview`.
+- **Almacenamiento Vectorial**: Persistencia en PostgreSQL utilizando `pgvector`.
+- **Caché Semántica**: Integración con Redis para almacenamiento temporal de consultas frecuentes, ahorrando hasta un 100% de tokens de embedding en hits.
 - **Multitenancy**: Aislamiento de datos mediante `project_id`.
 
 ### 2. MCP Server (Node.js)

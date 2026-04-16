@@ -7,10 +7,10 @@ Este sistema permite que tus agentes tengan "memoria a largo plazo" real, utiliz
 ## Características Principales
 
 - **Búsqueda Semántica**: Utiliza Google Gemini Embedding 2 (1536 dimensiones) para encontrar conceptos relacionados.
+- **Caché Semántica con Redis**: Ahorro drástico de tokens al cachear resultados de preguntas frecuentes.
 - **Persistencia Robusta**: Almacenamiento en PostgreSQL con la extensión `pgvector`.
 - **Aislamiento por Proyecto**: Soporta múltiples proyectos independientes en el mismo servidor.
-- **Arquitectura Desacoplada**: MCP Server (Node.js) + RAG Backend (FastAPI).
-- **Listo para Producción**: Configurable mediante variables de entorno y desplegable con Docker.
+- **Optimización de Costos**: Diseñado específicamente para reducir el consumo de la cuota de la API de Gemini.
 
 ## Estructura del Repositorio
 
