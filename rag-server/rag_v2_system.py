@@ -7,7 +7,9 @@ Todas las credenciales se leen desde variables de entorno o .env
 
 import os
 import json
+import hashlib
 import psycopg2
+import redis
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
@@ -29,6 +31,15 @@ EMBEDDING_DIM   = int(os.environ.get('EMBEDDING_DIM', '1536'))
 CHUNK_SIZE      = int(os.environ.get('CHUNK_SIZE', '500'))
 CHUNK_OVERLAP   = int(os.environ.get('CHUNK_OVERLAP', '100'))
 
+# ── Configuración Redis ───────────────────────────────────────────────────────
+REDIS_CONFIG = {
+    'host':     os.environ.get('REDIS_HOST',     'localhost'),
+    'port':     int(os.environ.get('REDIS_PORT', '6379')),
+    'password': os.environ.get('REDIS_PASSWORD', None),
+    'decode_responses': True
+}
+REDIS_TTL = int(os.environ.get('REDIS_TTL', '3600'))
+
 # ── Validación de arranque ────────────────────────────────────────────────────
 if not GEMINI_API_KEY:
     raise EnvironmentError("GEMINI_API_KEY no está definida. Copia .env.example → .env y completa los valores.")
@@ -42,7 +53,22 @@ class RAGSystemV2:
         self.client = genai.Client(api_key=GEMINI_API_KEY)
         self.conn   = psycopg2.connect(**DB_CONFIG)
         self.conn.autocommit = False
+        self.redis  = self._init_redis()
         self._init_db()
+
+    def _init_redis(self):
+        try:
+            r = redis.Redis(**REDIS_CONFIG)
+            if r.ping():
+                print(f"[RAG v2] Redis conectado en {REDIS_CONFIG['host']}:{REDIS_CONFIG['port']}")
+                return r
+        except Exception as e:
+            print(f"[RAG v2] ⚠️  Redis no disponible (caché deshabilitada): {e}")
+        return None
+
+    def _get_cache_key(self, project_id: str, query: str):
+        query_hash = hashlib.md5(query.strip().lower().encode()).hexdigest()
+        return f"rag_cache:{project_id}:{query_hash}"
 
     # ── Inicialización del esquema ────────────────────────────────────────────
     def _init_db(self):
@@ -134,6 +160,19 @@ class RAGSystemV2:
     # ── Búsqueda semántica ────────────────────────────────────────────────────
     def search_semantic(self, query: str, limit: int = 5,
                         task_type: str = "RETRIEVAL_QUERY", project_id: str = "default"):
+        
+        # 1. Intentar recuperar desde caché
+        cache_key = self._get_cache_key(project_id, query)
+        if self.redis:
+            try:
+                cached_data = self.redis.get(cache_key)
+                if cached_data:
+                    print(f"[RAG v2] ⚡ Hit en caché para: {query[:30]}...")
+                    return json.loads(cached_data)
+            except Exception as e:
+                print(f"[RAG v2] Error leyendo caché: {e}")
+
+        # 2. Si no hay caché, generar embedding y buscar
         query_embedding = self.generate_embedding(query, task_type=task_type)
 
         with self.conn.cursor() as cur:
@@ -158,6 +197,14 @@ class RAGSystemV2:
                     for row in cur.fetchall()
                 ]
                 self.conn.commit()
+
+                # 3. Guardar en caché para futuras consultas
+                if self.redis and results:
+                    try:
+                        self.redis.setex(cache_key, REDIS_TTL, json.dumps(results))
+                    except Exception as e:
+                        print(f"[RAG v2] Error escribiendo caché: {e}")
+
                 return results
             except Exception as e:
                 self.conn.rollback()
