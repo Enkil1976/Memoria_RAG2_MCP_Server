@@ -18,6 +18,8 @@ const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
+let redis   = null;
+try { redis = require('redis'); } catch(e) {}
 
 // ── Cargar .env si existe ─────────────────────────────────────────────────────
 const envPath = path.join(__dirname, '.env');
@@ -37,6 +39,22 @@ const PROJECT_ID  = process.argv[2] || process.env.PROJECT_ID  || 'default';
 const RAG_URL     = process.argv[3] || process.env.RAG_URL      || 'http://localhost:5001';
 const AGENT_ID    = process.env.AGENT_ID || 'system';
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '30000');
+const REDIS_URL   = process.env.REDIS_URL || 'redis://localhost:6379';
+
+// ── Redis Setup (Capa 1) ──────────────────────────────────────────────────────
+let redisClient = null;
+async function initRedis() {
+  if (!redis) return;
+  try {
+    redisClient = redis.createClient({ url: REDIS_URL });
+    redisClient.on('error', (err) => {});
+    await redisClient.connect();
+    process.stderr.write(`[rag-v2-mcp] 🔌 Redis sensorial conectado en ${REDIS_URL}\n`);
+  } catch (err) {
+    redisClient = null;
+  }
+}
+initRedis();
 
 // ── HTTP Helper ───────────────────────────────────────────────────────────────
 function ragRequest(method, path, body = null) {
@@ -134,13 +152,96 @@ const TOOLS = [
     name: 'rag_health',
     description: 'Verifica el estado del servidor RAG v2 (versión, modelo de embeddings, features activos).',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'rag_sensory_ingest',
+    description: 'Ingesta un mensaje (pensamiento, log o acción efímera) en la memoria sensorial circular de Redis (Capa 1).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'Mensaje o acción' },
+        project_id: { type: 'string' },
+        agent_id: { type: 'string' }
+      },
+      required: ['message']
+    }
+  },
+  {
+    name: 'rag_sensory_context',
+    description: 'Recupera los últimos N mensajes de atención inmediata desde Redis sin latencia pesada (Capa 1).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string' },
+        agent_id: { type: 'string' }
+      }
+    }
   }
 ];
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
+async function callGeminiFlash(prompt) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1 }
+    });
+    const API_KEY = process.env.GEMINI_API_KEY;
+    if (!API_KEY) return resolve(null);
+
+    const req = https.request({
+      hostname: 'generativelanguage.googleapis.com',
+      port: 443,
+      path: '/v1beta/models/gemini-1.5-flash:generateContent?key=' + API_KEY,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, (res) => {
+      let raw = '';
+      res.on('data', c => raw += c);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(raw);
+          const txt = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          resolve(txt.trim());
+        } catch(e) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.write(data);
+    req.end();
+  });
+}
+
 async function rag_memory_write(args) {
   const project_id = args.project_id || PROJECT_ID;
   const agent_id   = args.agent_id   || AGENT_ID;
+
+  // -- CAPA 3: Detector de Colisión y Upsert Semántico (Gemini Flash) --
+  try {
+    const searchResult = await ragRequest('POST', '/api/search', {
+      query: args.content,
+      limit: 1,
+      project_id,
+      agent_id
+    });
+    const bestMatch = searchResult.results?.[0];
+    if (bestMatch && bestMatch.similarity > 0.90) { // d < 0.1
+      const prompt = `Evalúa si la nueva memoria CONTRADICE o ACTUALIZA la memoria existente.
+Memoria Existente: "${bestMatch.content}"
+Nueva Memoria: "${args.content}"
+Si la nueva actualiza, corrige o invalida a la vieja, responde solo "REEMPLAZAR".
+Si aportan cosas distintas y pueden coexistir, responde solo "MANTENER".`;
+
+      const decision = await callGeminiFlash(prompt);
+      if (decision && decision.includes('REEMPLAZAR')) {
+        await ragRequest('DELETE', `/api/memories/${bestMatch.id}`);
+        process.stderr.write(`[rag-v2-mcp] 🔄 Colisión semántica: Reemplazado vector ID ${bestMatch.id}\n`);
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`[rag-v2-mcp] ⚠️ Falla en validación semántica (procediendo con insert normal): ${err.message}\n`);
+  }
+
   const result = await ragRequest('POST', '/api/memories', {
     title:       args.title,
     content:     args.content,
@@ -206,6 +307,25 @@ async function rag_health() {
   return { ...result, rag_url: RAG_URL, connected_project: PROJECT_ID };
 }
 
+async function rag_sensory_ingest(args) {
+  if (!redisClient) return { success: false, message: 'Redis no disponible' };
+  const pid = args.project_id || PROJECT_ID;
+  const aid = args.agent_id || AGENT_ID;
+  const key = `sensory_stream:${pid}:${aid}`;
+  await redisClient.lPush(key, JSON.stringify({ ts: Date.now(), msg: args.message }));
+  await redisClient.lTrim(key, 0, 99);
+  return { success: true, message: 'Ingestado en memoria buffer circular' };
+}
+
+async function rag_sensory_context(args) {
+  if (!redisClient) return { context: [] };
+  const pid = args.project_id || PROJECT_ID;
+  const aid = args.agent_id || AGENT_ID;
+  const key = `sensory_stream:${pid}:${aid}`;
+  const data = await redisClient.lRange(key, 0, 49);
+  return { context: data.map(d => JSON.parse(d)) };
+}
+
 async function callTool(name, args) {
   switch (name) {
     case 'rag_memory_write':  return rag_memory_write(args);
@@ -213,6 +333,8 @@ async function callTool(name, args) {
     case 'rag_project_list':  return rag_project_list();
     case 'rag_project_init':  return rag_project_init(args);
     case 'rag_health':        return rag_health();
+    case 'rag_sensory_ingest':return rag_sensory_ingest(args);
+    case 'rag_sensory_context':return rag_sensory_context(args);
     default: throw new Error(`Herramienta desconocida: ${name}`);
   }
 }

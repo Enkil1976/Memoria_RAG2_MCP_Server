@@ -13,6 +13,9 @@
     "gemini",
     "embeddings"
   ],
+  "dependencies": {
+    "redis": "^4.6.14"
+  },
   "author": "BioDome Team",
   "license": "MIT",
   "engines": {

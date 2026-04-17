@@ -90,6 +90,18 @@ async def list_projects():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/memories/{memory_id}")
+async def delete_memory(memory_id: int):
+    try:
+        deleted = rag.delete_memory(memory_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        return {"status": "success", "id": memory_id, "deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     uvicorn.run(app, host=API_HOST, port=API_PORT)

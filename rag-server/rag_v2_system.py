@@ -167,6 +167,18 @@ class RAGSystemV2:
                 self.conn.rollback()
                 raise RuntimeError(f"[add_memory] Error: {e}") from e
 
+    # ── Borrado de memoria ────────────────────────────────────────────────────
+    def delete_memory(self, memory_id: int) -> bool:
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM memories_v2 WHERE id = %s", (memory_id,))
+                deleted = cur.rowcount > 0
+                self.conn.commit()
+                return deleted
+            except Exception as e:
+                self.conn.rollback()
+                raise RuntimeError(f"[delete_memory] Error: {e}") from e
+
     # ── Búsqueda semántica ────────────────────────────────────────────────────
     def search_semantic(self, query: str, limit: int = 5,
                         task_type: str = "RETRIEVAL_QUERY", 

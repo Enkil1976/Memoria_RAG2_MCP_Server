@@ -4,13 +4,16 @@ Sistema de memoria semántica vectorial persistente para agentes de IA, basado e
 
 Este sistema permite que tus agentes tengan "memoria a largo plazo" real, utilizando búsqueda semántica avanzada en lugar de simples palabras clave.
 
+## Arquitectura de 3 Capas (Novedad v3)
+- **Capa 1 (Sensorial)**: Buffer circular Redis para ingestión ultra rápida de monólogos de agente (Zero lag).
+- **Capa 2 (Trabajo)**: Persistencia vectorial PostgreSQL `pgvector` con Google Gemini Embedding 2 (1536 dimensiones).
+- **Capa 3 (Consolidación)**: Validación transaccional automática de colisiones semánticas mediante **Gemini 1.5 Flash**, que borra y reescribe conocimiento obsoleto.
+
 ## Características Principales
 
-- **Búsqueda Semántica**: Utiliza Google Gemini Embedding 2 (1536 dimensiones) para encontrar conceptos relacionados.
 - **Caché Semántica con Redis**: Ahorro drástico de tokens al cachear resultados de preguntas frecuentes.
 - **Agent-Aware Retrieval**: Prioriza o aísla conocimiento basado en el `agent_id`, ideal para equipos de agentes especializados.
-- **Persistencia Robusta**: Almacenamiento en PostgreSQL con la extensión `pgvector`.
-- **Aislamiento por Proyecto**: Soporta múltiples proyectos independientes en el mismo servidor.
+- **Multitenancy Estricto**: Aislamiento total de datos mediante `project_id`.
 - **Optimización de Costos**: Diseñado específicamente para reducir el consumo de la cuota de la API de Gemini.
 
 ## Estructura del Repositorio
