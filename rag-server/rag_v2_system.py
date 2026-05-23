@@ -179,6 +179,33 @@ class RAGSystemV2:
                 self.conn.rollback()
                 raise RuntimeError(f"[delete_memory] Error: {e}") from e
 
+    # ── Recuperación por ID ───────────────────────────────────────────────────
+    def get_memory(self, memory_id: int):
+        with self.conn.cursor() as cur:
+            try:
+                cur.execute("""
+                    SELECT id, project_id, agent_id, title, content, tags, memory_type, metadata, created_at
+                    FROM memories_v2
+                    WHERE id = %s
+                """, (memory_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                
+                return {
+                    'id':          row[0],
+                    'project_id':  row[1],
+                    'agent_id':    row[2],
+                    'title':       row[3],
+                    'content':     row[4],
+                    'tags':        row[5],
+                    'memory_type': row[6],
+                    'metadata':    row[7],
+                    'created_at':  row[8].isoformat() if row[8] else None
+                }
+            except Exception as e:
+                raise RuntimeError(f"[get_memory] Error: {e}") from e
+
     # ── Búsqueda semántica ────────────────────────────────────────────────────
     def search_semantic(self, query: str, limit: int = 5,
                         task_type: str = "RETRIEVAL_QUERY", 
@@ -240,6 +267,7 @@ class RAGSystemV2:
                 raise RuntimeError(f"[search_semantic] Error: {e}") from e
 
     # ── Listado de proyectos ──────────────────────────────────────────────────
+    # ── Listado de proyectos ──────────────────────────────────────────────────
     def list_projects(self):
         with self.conn.cursor() as cur:
             try:
@@ -249,12 +277,10 @@ class RAGSystemV2:
                     GROUP BY project_id
                     ORDER BY mem_count DESC
                 """)
-                return [{'project_id': r[0], 'memory_count': r[1]} for r in cur.fetchall()]
+                return [{"project_id": r[0], "memory_count": r[1]} for r in cur.fetchall()]
             except Exception as e:
                 self.conn.rollback()
                 raise RuntimeError(f"[list_projects] Error: {e}") from e
-
-    # ── Chunking ──────────────────────────────────────────────────────────────
     def _chunk_text(self, text: str):
         words = text.split()
         chunks = [

@@ -111,7 +111,7 @@ const TOOLS = [
         content:     { type: 'string', description: 'Contenido completo (soporta Markdown)' },
         tags:        { type: 'array',  items: { type: 'string' }, description: 'Tags para categorización' },
         memory_type: { type: 'string', enum: ['architecture','decision','bug','pattern','feature','api','note'], description: 'Tipo semántico de la memoria' },
-        project_id:  { type: 'string', description: `Proyecto destino (default: "${PROJECT_ID}")` },
+        project_id:  { type: 'string', description: 'IMPORTANTE: NO llenes este campo a menos que el usuario indique explícitamente trabajar en otro proyecto. Por defecto irá a BioDome.' },
         agent_id:    { type: 'string', description: `ID del agente (default: "${AGENT_ID}")` }
       },
       required: ['title', 'content']
@@ -125,7 +125,7 @@ const TOOLS = [
       properties: {
         query:      { type: 'string', description: 'Consulta en lenguaje natural' },
         limit:      { type: 'number', description: 'Número máximo de resultados (default: 5)' },
-        project_id: { type: 'string', description: `Proyecto a consultar (default: "${PROJECT_ID}")` },
+        project_id: { type: 'string', description: 'IMPORTANTE: NO llenes este campo a menos que el usuario indique explícitamente buscar en otro proyecto. Por defecto buscará en BioDome.' },
         agent_id:   { type: 'string', description: 'Opcional: Filtrar o priorizar memorias de este agente' }
       },
       required: ['query']
@@ -403,9 +403,20 @@ process.stdin.on('data', async (chunk) => {
       sendError(null, -32700, 'Parse error');
     }
   }
+  
+  // Fallback para clientes (ej. OpenClaw) que envían JSON completo pero olvidan el salto de línea \n
+  if (buffer.trim().startsWith('{') && buffer.trim().endsWith('}')) {
+    try {
+      const parsed = JSON.parse(buffer.trim());
+      await handleRequest(parsed);
+      buffer = '';
+    } catch (e) {
+      // Incompleto, sigue esperando
+    }
+  }
 });
 
 process.stdin.on('end', () => {
-  process.stderr.write('[rag-v2-mcp] stdin cerrado — saliendo.\n');
-  process.exit(0);
+  process.stderr.write('[rag-v2-mcp] stdin cerrado — esperando cierre explícito.\n');
+  // Do not exit on stdin end; wait for SIGINT/SIGTERM or explicit shutdown
 });
